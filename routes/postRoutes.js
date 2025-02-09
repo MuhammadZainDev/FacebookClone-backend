@@ -12,7 +12,7 @@ const {
     getComments
 } = require('../controllers/postController');
 
-// Configure multer for image upload
+// Configure multer for file upload
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
         cb(null, 'uploads/') // Make sure this folder exists
@@ -25,19 +25,20 @@ const storage = multer.diskStorage({
 
 // File filter
 const fileFilter = (req, file, cb) => {
-    // Accept images only
-    if (!file.originalname.match(/\.(jpg|JPG|jpeg|JPEG|png|PNG|gif|GIF)$/)) {
-        req.fileValidationError = 'Only image files are allowed!';
-        return cb(new Error('Only image files are allowed!'), false);
+    // Accept images and videos
+    if (file.mimetype.startsWith('image/') || file.mimetype.startsWith('video/')) {
+        cb(null, true);
+    } else {
+        req.fileValidationError = 'Only image and video files are allowed!';
+        cb(new Error('Only image and video files are allowed!'), false);
     }
-    cb(null, true);
 };
 
 const upload = multer({ 
     storage: storage,
     fileFilter: fileFilter,
     limits: {
-        fileSize: 5 * 1024 * 1024 // 5MB max-limit
+        fileSize: 100 * 1024 * 1024 // 100MB max-limit for videos
     }
 });
 
@@ -46,7 +47,7 @@ router.use(protect);
 
 // Post routes
 router.route('/')
-    .post(upload.array('media', 5), createPost)  // Allow up to 5 images
+    .post(upload.array('media', 5), createPost)  // Allow up to 5 files
     .get(getPosts);
 
 // Like/Unlike routes

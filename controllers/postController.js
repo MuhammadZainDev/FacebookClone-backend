@@ -1,4 +1,6 @@
 const pool = require('../config/db');
+const cloudinary = require('../config/cloudinary');
+const fs = require('fs');
 
 // Create a new post
 const createPost = async (req, res) => {
@@ -11,19 +13,56 @@ const createPost = async (req, res) => {
         const userId = req.user.id;
         
         // Handle uploaded files
-        const mediaUrls = req.files ? req.files.map(file => `http://localhost:5000/uploads/${file.filename}`) : [];
+        const mediaUrls = [];
+        const mediaTypes = [];
+
+        if (req.files && req.files.length > 0) {
+            for (const file of req.files) {
+                try {
+                    // Determine if file is video or image based on mimetype
+                    const isVideo = file.mimetype.startsWith('video/');
+                    
+                    // Upload to Cloudinary with appropriate settings
+                    const uploadResult = await cloudinary.uploader.upload(file.path, {
+                        resource_type: isVideo ? 'video' : 'image',
+                        folder: isVideo ? 'videos' : 'images',
+                        // For videos, generate a thumbnail
+                        ...(isVideo && {
+                            eager: [
+                                { width: 300, height: 300, crop: "pad", audio_codec: "none" },
+                                { width: 160, height: 100, crop: "crop", gravity: "south", audio_codec: "none" }
+                            ],
+                            eager_async: true,
+                            eager_notification_url: "https://mysite.example.com/notify_endpoint"
+                        })
+                    });
+
+                    // Add the URL to our array
+                    mediaUrls.push(uploadResult.secure_url);
+                    mediaTypes.push(isVideo ? 'video' : 'image');
+
+                    // Delete the temporary file
+                    fs.unlinkSync(file.path);
+                } catch (uploadError) {
+                    console.error('Error uploading file to Cloudinary:', uploadError);
+                    // Continue with other files even if one fails
+                }
+            }
+        }
         
         console.log('Media URLs:', mediaUrls);
+        console.log('Media Types:', mediaTypes);
         console.log('Content:', content);
 
         const result = await pool.query(
-            `INSERT INTO posts (user_id, content, media, privacy, post_type, feeling, location)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)
+            `INSERT INTO posts (user_id, content, media, media_types, privacy, post_type, feeling, location)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
              RETURNING *`,
             [
                 userId, 
                 content || null, 
                 mediaUrls, 
+                mediaTypes,
                 privacy || 'public', 
                 post_type || 'text',
                 feeling || null,
