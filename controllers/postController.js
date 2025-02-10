@@ -94,22 +94,31 @@ const getPosts = async (req, res) => {
         const offset = (page - 1) * limit;
 
         const result = await pool.query(
-            `SELECT p.*, 
-                u.first_name, 
+            `SELECT 
+                p.*,
+                u.first_name,
                 u.last_name,
-                COUNT(DISTINCT pl.id) as likes_count,
-                COUNT(DISTINCT pc.id) as comments_count,
+                u.profile_picture,
+                COALESCE(pl.likes_count, 0) as likes_count,
+                COALESCE(pc.comments_count, 0) as comments_count,
                 EXISTS (
                     SELECT 1 FROM post_likes 
                     WHERE post_id = p.id AND user_id = $1
                 ) as is_liked
-             FROM posts p
-             LEFT JOIN users u ON p.user_id = u.id
-             LEFT JOIN post_likes pl ON p.id = pl.post_id
-             LEFT JOIN post_comments pc ON p.id = pc.post_id
-             GROUP BY p.id, u.first_name, u.last_name
-             ORDER BY p.created_at DESC
-             LIMIT $2 OFFSET $3`,
+            FROM posts p
+            LEFT JOIN users u ON p.user_id = u.id
+            LEFT JOIN (
+                SELECT post_id, COUNT(*) as likes_count 
+                FROM post_likes 
+                GROUP BY post_id
+            ) pl ON p.id = pl.post_id
+            LEFT JOIN (
+                SELECT post_id, COUNT(*) as comments_count 
+                FROM post_comments 
+                GROUP BY post_id
+            ) pc ON p.id = pc.post_id
+            ORDER BY p.created_at DESC
+            LIMIT $2 OFFSET $3`,
             [req.user.id, limit, offset]
         );
 
@@ -118,6 +127,7 @@ const getPosts = async (req, res) => {
             data: result.rows
         });
     } catch (error) {
+        console.error('Error fetching posts:', error);
         res.status(500).json({
             success: false,
             message: 'Error fetching posts'
@@ -131,19 +141,37 @@ const likePost = async (req, res) => {
         const postId = req.params.id;
         const userId = req.user.id;
 
-        const result = await pool.query(
-            `INSERT INTO post_likes (post_id, user_id)
-             VALUES ($1, $2)
-             ON CONFLICT (post_id, user_id) DO NOTHING
-             RETURNING *`,
+        // First check if user has already liked the post
+        const existingLike = await pool.query(
+            'SELECT * FROM post_likes WHERE post_id = $1 AND user_id = $2',
             [postId, userId]
+        );
+
+        if (existingLike.rows.length > 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Post already liked'
+            });
+        }
+
+        // Add the like
+        await pool.query(
+            'INSERT INTO post_likes (post_id, user_id) VALUES ($1, $2)',
+            [postId, userId]
+        );
+
+        // Get updated like count
+        const likeCount = await pool.query(
+            'SELECT COUNT(*) as count FROM post_likes WHERE post_id = $1',
+            [postId]
         );
 
         res.json({
             success: true,
-            data: result.rows[0]
+            likesCount: parseInt(likeCount.rows[0].count)
         });
     } catch (error) {
+        console.error('Error liking post:', error);
         res.status(500).json({
             success: false,
             message: 'Error liking post'
@@ -157,18 +185,24 @@ const unlikePost = async (req, res) => {
         const postId = req.params.id;
         const userId = req.user.id;
 
-        const result = await pool.query(
-            `DELETE FROM post_likes
-             WHERE post_id = $1 AND user_id = $2
-             RETURNING *`,
+        // Remove the like
+        await pool.query(
+            'DELETE FROM post_likes WHERE post_id = $1 AND user_id = $2',
             [postId, userId]
+        );
+
+        // Get updated like count
+        const likeCount = await pool.query(
+            'SELECT COUNT(*) as count FROM post_likes WHERE post_id = $1',
+            [postId]
         );
 
         res.json({
             success: true,
-            data: result.rows[0]
+            likesCount: parseInt(likeCount.rows[0].count)
         });
     } catch (error) {
+        console.error('Error unliking post:', error);
         res.status(500).json({
             success: false,
             message: 'Error unliking post'

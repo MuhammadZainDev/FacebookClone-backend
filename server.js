@@ -7,6 +7,7 @@ const authRoutes = require('./routes/authRoutes');
 const postRoutes = require('./routes/postRoutes');
 const friendRoutes = require('./routes/friendRoutes');
 const profileRoutes = require('./routes/profileRoutes');
+const aiRoutes = require('./routes/aiRoutes');
 
 dotenv.config();
 
@@ -32,6 +33,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/posts', postRoutes);
 app.use('/api/friends', friendRoutes);
 app.use('/api/profile', profileRoutes);
+app.use('/api/ai', aiRoutes);
 
 // Serve uploaded files
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
